@@ -1,12 +1,8 @@
-pub mod picking;
-
 use bevy::ecs::entity::Entities;
-use bevy::ecs::query::QuerySingleError;
 use bevy::pbr::wireframe::Wireframe;
 use bevy::prelude::*;
 use bevy::render::{Extract, RenderApp, RenderStage};
 use bevy::utils::HashSet;
-use bevy_editor_pls_core::EditorState;
 use bevy_inspector_egui::egui::{self, CollapsingHeader, RichText, ScrollArea};
 
 use bevy_editor_pls_core::{
@@ -15,7 +11,6 @@ use bevy_editor_pls_core::{
 };
 
 use crate::add::{add_ui, AddWindow, AddWindowState};
-use crate::cameras::ActiveEditorCamera;
 use crate::debug_settings::DebugSettingsWindow;
 
 #[derive(Component)]
@@ -43,10 +38,8 @@ impl EditorWindow for HierarchyWindow {
     }
 
     fn app_setup(app: &mut bevy::prelude::App) {
-        picking::setup(app);
         app.add_event::<EditorHierarchyEvent>()
-            .add_system_to_stage(CoreStage::PostUpdate, clear_removed_entites)
-            .add_system(handle_events);
+            .add_system_to_stage(CoreStage::PostUpdate, clear_removed_entites);
 
         app.sub_app_mut(RenderApp)
             .add_system_to_stage(RenderStage::Extract, extract_wireframe_for_selected);
@@ -60,78 +53,6 @@ fn clear_removed_entites(mut editor: ResMut<Editor>, entities: &Entities) {
 
 pub enum EditorHierarchyEvent {
     SelectMesh,
-}
-
-fn handle_events(
-    mut select_mesh_events: EventReader<EditorHierarchyEvent>,
-    // mut editor_events: EventReader<EditorEvent>,
-    // mut raycast_state: ResMut<EditorRayCastState>,
-    editor_camera: Query<Option<&picking::EditorRayCastSource>, With<ActiveEditorCamera>>,
-    non_editor_camera: Query<&picking::EditorRayCastSource, Without<super::cameras::EditorCamera>>,
-    mut editor: ResMut<Editor>,
-    editor_state: Res<EditorState>,
-    input: Res<Input<KeyCode>>,
-) {
-    // TODO: reenable once bevy_mod_raycast has per-source configuration
-    /*for event in editor_events.iter() {
-        match *event {
-            EditorEvent::Toggle { now_active: false } => {
-                raycast_state.build_rays = false;
-                raycast_state.update_raycast = false;
-            }
-            EditorEvent::Toggle { now_active: true } => {
-                raycast_state.build_rays = true;
-                raycast_state.update_raycast = true;
-            }
-            _ => {}
-        }
-    }*/
-
-    for event in select_mesh_events.iter() {
-        #[allow(irrefutable_let_patterns)]
-        if let EditorHierarchyEvent::SelectMesh = event {
-            let picked_entity = if editor_state.active {
-                editor_camera.get_single().ok().and_then(|source| {
-                    source.and_then(|source| source.intersect_top().map(|(entity, _)| entity))
-                })
-            } else {
-                let source = match non_editor_camera.get_single() {
-                    Ok(source) => Some(source),
-                    Err(QuerySingleError::NoEntities(_)) => {
-                        error!("No cameras with `EditorRayCastSource` found, can't click to inspect when the editor is inactive!");
-                        continue;
-                    }
-                    Err(QuerySingleError::MultipleEntities(_)) => {
-                        error!("Multiple cameras with `EditorRayCastSource` found!");
-                        continue;
-                    }
-                };
-                source
-                    .and_then(|source| source.intersect_top())
-                    .map(|(entity, _)| entity)
-            };
-
-            let state = editor.window_state_mut::<HierarchyWindow>().unwrap();
-
-            let ctrl = input.any_pressed([KeyCode::LControl, KeyCode::RControl]);
-            let shift = input.any_pressed([KeyCode::LShift, KeyCode::RShift]);
-            let mode = SelectionMode::from_ctrl_shift(ctrl, shift);
-
-            if let Some(entity) = picked_entity {
-                info!("Selecting mesh, found {:?}", entity);
-                state
-                    .selected
-                    .select(mode, entity, || std::iter::once(entity));
-            } else {
-                info!("Selecting mesh, found none");
-
-                match mode {
-                    SelectionMode::Replace | SelectionMode::Add => state.selected.clear(),
-                    SelectionMode::Extend => {}
-                }
-            }
-        }
-    }
 }
 
 fn extract_wireframe_for_selected(editor: Extract<Res<Editor>>, mut commands: Commands) {
